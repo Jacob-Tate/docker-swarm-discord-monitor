@@ -84,7 +84,7 @@ jobs:
 
       - name: Upload Trivy scan results to GitHub Security tab
         if: github.event_name != 'pull_request'
-        uses: github/codeql-action/upload-sarif@v2
+        uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: 'trivy-results.sarif'
 
@@ -92,29 +92,6 @@ jobs:
         if: github.event_name != 'pull_request'
         uses: anchore/sbom-action@v0
         with:
-          image: ${{ env.REGISTRY_GHCR }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:latest
+          image: ${{ env.REGISTRY_GHCR }}/${{ vars.OWNER }}/${{ env.IMAGE_NAME }}:latest
           artifact-name: sbom.spdx.json
           output-file: sbom.spdx.json
-
-  deploy-example:
-    needs: build-and-push
-    runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        
-      - name: Update deployment files
-        run: |
-          # Update docker-compose.yml with new image tag
-          sed -i "s|image:.*|image: ${{ env.REGISTRY_GHCR }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:latest|g" docker-compose.yml
-          
-      - name: Create deployment artifact
-        uses: actions/upload-artifact@v3
-        with:
-          name: deployment-files
-          path: |
-            docker-compose.yml
-            docker-compose.swarm.yml
-            README.md
