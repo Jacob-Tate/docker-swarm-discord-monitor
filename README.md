@@ -73,6 +73,7 @@ docker run -d \
 | `TIMEOUT_SECONDS` | `30` | Webhook request timeout |
 | `DISCORD_USERNAME` | `Docker Swarm Monitor` | Bot username in Discord |
 | `DISCORD_AVATAR_URL` | Docker logo | Bot avatar URL |
+| `DEDUP_WINDOW` | `10` | Seconds to prevent duplicate notifications |
 
 ## Discord Notification Examples
 

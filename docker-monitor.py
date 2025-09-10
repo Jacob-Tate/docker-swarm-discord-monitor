@@ -25,6 +25,7 @@ RETRY_ATTEMPTS = int(os.getenv('RETRY_ATTEMPTS', '3'))
 TIMEOUT_SECONDS = int(os.getenv('TIMEOUT_SECONDS', '30'))
 DISCORD_USERNAME = os.getenv('DISCORD_USERNAME', 'Docker Swarm Monitor')
 DISCORD_AVATAR_URL = os.getenv('DISCORD_AVATAR_URL', 'https://raw.githubusercontent.com/docker/compose/v2/logo.png')
+DEDUP_WINDOW = int(os.getenv('DEDUP_WINDOW', '10'))  # seconds
 
 # Setup logging
 logging.basicConfig(
@@ -39,6 +40,9 @@ class DockerSwarmDiscordMonitor:
         self.discord_webhook_url = discord_webhook_url
         self.node_name = socket.gethostname()
         self.session = self._create_session()
+        # Deduplication cache: {container_name: {event_type: timestamp}}
+        self.recent_events = {}
+        self.dedup_window = DEDUP_WINDOW  # seconds
         
         try:
             self.client = docker.from_env()
@@ -199,12 +203,39 @@ class DockerSwarmDiscordMonitor:
         except Exception as e:
             logger.error(f"Failed to send startup notification: {e}")
     
+    def is_duplicate_event(self, container_name: str, event_type: str, event_time: float) -> bool:
+        """Check if this event is a duplicate within the deduplication window"""
+        now = time.time()
+        
+        # Clean old entries
+        for container in list(self.recent_events.keys()):
+            for event in list(self.recent_events[container].keys()):
+                if now - self.recent_events[container][event] > self.dedup_window:
+                    del self.recent_events[container][event]
+            if not self.recent_events[container]:
+                del self.recent_events[container]
+        
+        # Check if this is a duplicate
+        if container_name in self.recent_events:
+            if event_type in self.recent_events[container_name]:
+                last_time = self.recent_events[container_name][event_type]
+                if event_time - last_time < self.dedup_window:
+                    return True
+        
+        # Record this event
+        if container_name not in self.recent_events:
+            self.recent_events[container_name] = {}
+        self.recent_events[container_name][event_type] = event_time
+        
+        return False
+    
     def process_event(self, event: Dict[str, Any]) -> None:
         """Process a Docker event and send Discord notification if relevant"""
         try:
             action = event.get('Action', '')
             actor = event.get('Actor', {})
             attributes = actor.get('Attributes', {})
+            event_time = event.get('time', time.time())
             
             container_name = attributes.get('name', 'unknown')
             service_name = attributes.get('com.docker.swarm.service.name', '')
@@ -213,14 +244,19 @@ class DockerSwarmDiscordMonitor:
             if not service_name:
                 return
             
-            # Only process start/stop/die events
-            if action not in ['start', 'stop', 'die']:
+            # Only process start/die events (die covers all container stops)
+            if action not in ['start', 'die']:
                 return
             
             # Map die to stopped for consistency
-            event_type = 'stopped' if action in ['stop', 'die'] else 'started'
+            event_type = 'stopped' if action == 'die' else 'started'
             
-            timestamp = datetime.fromtimestamp(event.get('time', time.time())).isoformat()
+            # Check for duplicate events
+            if self.is_duplicate_event(container_name, event_type, event_time):
+                logger.debug(f"Skipping duplicate {event_type} event for {container_name}")
+                return
+            
+            timestamp = datetime.fromtimestamp(event_time).isoformat()
             
             event_data = {
                 'event_type': event_type,
@@ -241,6 +277,7 @@ class DockerSwarmDiscordMonitor:
         """Start monitoring Docker events"""
         logger.info("Starting Docker Swarm event monitoring...")
         logger.info(f"Discord webhook configured: {bool(self.discord_webhook_url)}")
+        logger.info(f"Deduplication window: {self.dedup_window} seconds")
         
         # Send startup notification
         self.send_startup_notification()
@@ -249,7 +286,7 @@ class DockerSwarmDiscordMonitor:
             events = self.client.events(
                 filters={
                     'type': 'container',
-                    'event': ['start', 'stop', 'die']
+                    'event': ['start', 'die']
                 },
                 decode=True
             )
