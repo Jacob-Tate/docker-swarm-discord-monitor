@@ -1,0 +1,48 @@
+version: '3.8'
+
+services:
+  docker-monitor:
+    image: ghcr.io/your-username/docker-swarm-discord-monitor:latest
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      - DISCORD_WEBHOOK_URL=${DISCORD_WEBHOOK_URL}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - RETRY_ATTEMPTS=${RETRY_ATTEMPTS:-3}
+      - TIMEOUT_SECONDS=${TIMEOUT_SECONDS:-30}
+      - DISCORD_USERNAME=${DISCORD_USERNAME:-Docker Swarm Monitor}
+    networks:
+      - monitoring
+    deploy:
+      mode: global  # Deploy on all swarm nodes
+      restart_policy:
+        condition: any
+        delay: 5s
+        max_attempts: 3
+        window: 120s
+      update_config:
+        parallelism: 1
+        delay: 10s
+        failure_action: rollback
+        monitor: 60s
+      rollback_config:
+        parallelism: 1
+        delay: 10s
+        monitor: 60s
+      resources:
+        limits:
+          memory: 128M
+          cpus: '0.1'
+        reservations:
+          memory: 64M
+          cpus: '0.05'
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  monitoring:
+    driver: overlay
+    attachable: true

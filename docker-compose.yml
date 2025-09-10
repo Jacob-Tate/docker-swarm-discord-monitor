@@ -1,0 +1,27 @@
+version: '3.8'
+
+services:
+  docker-monitor:
+    build: .
+    container_name: docker-monitor
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      - DISCORD_WEBHOOK_URL=${DISCORD_WEBHOOK_URL}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - RETRY_ATTEMPTS=${RETRY_ATTEMPTS:-3}
+      - TIMEOUT_SECONDS=${TIMEOUT_SECONDS:-30}
+      - DISCORD_USERNAME=${DISCORD_USERNAME:-Docker Swarm Monitor}
+      - DISCORD_AVATAR_URL=${DISCORD_AVATAR_URL:-https://raw.githubusercontent.com/docker/compose/v2/logo.png}
+    networks:
+      - monitoring
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  monitoring:
+    driver: bridge

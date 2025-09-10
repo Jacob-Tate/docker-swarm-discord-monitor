@@ -1,0 +1,57 @@
+name: Create Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          # Simple changelog generation
+          echo "CHANGELOG<<EOF" >> $GITHUB_OUTPUT
+          echo "## Changes in ${{ github.ref_name }}" >> $GITHUB_OUTPUT
+          git log --pretty=format:"- %s" $(git describe --tags --abbrev=0 HEAD^)..HEAD >> $GITHUB_OUTPUT
+          echo "" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Create Release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref_name }}
+          release_name: Release ${{ github.ref_name }}
+          body: |
+            ## Docker Images
+            
+            - `ghcr.io/${{ github.repository_owner }}/docker-swarm-discord-monitor:${{ github.ref_name }}`
+            - `ghcr.io/${{ github.repository_owner }}/docker-swarm-discord-monitor:latest`
+            
+            ## Quick Start
+            
+            ```bash
+            # Set your Discord webhook URL
+            export DISCORD_WEBHOOK_URL="https://discord.com/api/webhooks/YOUR_WEBHOOK_URL"
+            
+            # Run the monitor
+            docker run -d \
+              --name docker-swarm-discord-monitor \
+              -v /var/run/docker.sock:/var/run/docker.sock:ro \
+              -e DISCORD_WEBHOOK_URL=$DISCORD_WEBHOOK_URL \
+              ghcr.io/${{ github.repository_owner }}/docker-swarm-discord-monitor:${{ github.ref_name }}
+            ```
+            
+            ${{ steps.changelog.outputs.CHANGELOG }}
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
